@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "150747189202",
+    "project_id": "nanny-crow-s-guide",
+    "storage_bucket": "nanny-crow-s-guide.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:150747189202:android:e865d440eb42136835820b",
+        "android_client_info": {
+          "package_name": "com.example.nanny_crows_guide"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC5W93VKe0KMPc9PClAtSlGM7Gj3CkHdzI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
