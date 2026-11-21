@@ -1,30 +1,37 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:nanny_crows_guide/main.dart';
+import 'package:nanny_crows_guide/features/auth/domain/user_profile.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('parses app roles including existing account aliases', () {
+    expect(UserRole.parse('teacher'), UserRole.teacher);
+    expect(UserRole.parse('curator'), UserRole.teacher);
+    expect(UserRole.parse('student'), UserRole.student);
+    expect(UserRole.parse('child'), UserRole.student);
+    expect(UserRole.parse('parent'), UserRole.parent);
+    expect(UserRole.parse('admin'), isNull);
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  test('maps profile fields and defaults optional collections', () {
+    final profile = UserProfile.fromMap('student-1', {
+      'role': 'student',
+      'fullName': 'Иван Иванов',
+      'email': 'ivan@example.com',
+      'classId': 'class-5a',
+      'childrenIds': <String>[],
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(profile.uid, 'student-1');
+    expect(profile.role, UserRole.student);
+    expect(profile.fullName, 'Иван Иванов');
+    expect(profile.classId, 'class-5a');
+    expect(profile.childrenIds, isEmpty);
+    expect(profile.childClassIds, isEmpty);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('rejects unknown Firestore roles', () {
+    expect(
+      () => UserProfile.fromMap('invalid', {'role': 'admin'}),
+      throwsFormatException,
+    );
   });
 }

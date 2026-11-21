@@ -1,0 +1,61 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData(userId) {
+      return firestore.get(
+        /databases/(default)/documents/users/$(userId)
+      ).data;
+    }
+
+    match /assignments/{assignmentId}/{fileName} {
+      function assignment() {
+        return firestore.get(
+          /databases/(default)/documents/assignments/$(assignmentId)
+        ).data;
+      }
+
+      allow read: if signedIn()
+        && (request.auth.uid == assignment().teacherId
+          || userData(request.auth.uid).classId == assignment().classId
+          || assignment().classId in userData(request.auth.uid).childClassIds);
+
+      allow write: if signedIn()
+        && request.auth.uid == assignment().teacherId
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches(
+          'image/.*|application/pdf'
+        );
+    }
+
+    match /submissions/{assignmentId}/{studentId}/{fileName} {
+      function assignment() {
+        return firestore.get(
+          /databases/(default)/documents/assignments/$(assignmentId)
+        ).data;
+      }
+
+      allow read: if signedIn()
+        && (request.auth.uid == studentId
+          || request.auth.uid == assignment().teacherId
+          || studentId in userData(request.auth.uid).childrenIds);
+
+      allow write: if signedIn()
+        && request.auth.uid == studentId
+        && assignment().classId == userData(studentId).classId
+        && (!firestore.exists(
+          /databases/(default)/documents/submissions/$(assignmentId + '_' + studentId)
+        )
+          || firestore.get(
+            /databases/(default)/documents/submissions/$(assignmentId + '_' + studentId)
+          ).data.status != 'graded')
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches(
+          'image/.*|application/pdf'
+        );
+    }
+  }
+}

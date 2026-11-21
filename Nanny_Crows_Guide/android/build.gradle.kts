@@ -28,12 +28,12 @@ subprojects {
                     it.name == "compileSdkVersion" && it.parameterTypes.size == 1 && it.parameterTypes[0] == Int::class.javaPrimitiveType
                 }
                 if (compileSdkVersionMethod != null) {
-                    compileSdkVersionMethod.invoke(android, 34)
+                    compileSdkVersionMethod.invoke(android, 36)
                 } else {
                     val setCompileSdkMethod = android.javaClass.methods.firstOrNull {
                         it.name == "setCompileSdk" && it.parameterTypes.size == 1
                     }
-                    setCompileSdkMethod?.invoke(android, 34)
+                    setCompileSdkMethod?.invoke(android, 36)
                 }
             } catch (_: Exception) {}
         }

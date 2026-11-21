@@ -1,0 +1,210 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isTeacherOf(classId) {
+      return signedIn()
+        && userData().role in ['teacher', 'curator']
+        && request.auth.uid in get(
+          /databases/$(database)/documents/classes/$(classId)
+        ).data.teacherIds;
+    }
+
+    function isParentOf(studentId) {
+      return signedIn()
+        && userData().role == 'parent'
+        && studentId in userData().childrenIds;
+    }
+
+    function isStudentIn(classId) {
+      return signedIn()
+        && userData().role in ['student', 'child']
+        && userData().classId == classId;
+    }
+
+    function isParentIn(classId) {
+      return signedIn()
+        && userData().role == 'parent'
+        && classId in userData().childClassIds;
+    }
+
+    match /users/{userId} {
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.role in ['teacher', 'student', 'parent']
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.fullName.size() <= 160
+        && request.resource.data.email is string
+        && request.resource.data.childrenIds == []
+        && request.resource.data.childClassIds == []
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.keys().hasOnly([
+          'uid', 'role', 'fullName', 'email', 'childrenIds',
+          'childClassIds', 'createdAt'
+        ]);
+
+      allow read: if signedIn()
+        && (request.auth.uid == userId || isParentOf(userId));
+
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['fullName', 'email', 'fcmToken']);
+
+      allow delete: if false;
+    }
+
+    match /classes/{classId} {
+      allow read: if signedIn()
+        && (isTeacherOf(classId)
+          || isStudentIn(classId)
+          || isParentIn(classId));
+      allow write: if false;
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if signedIn()
+        && (isTeacherOf(resource.data.classId)
+          || isStudentIn(resource.data.classId)
+          || isParentIn(resource.data.classId));
+      allow write: if false;
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if signedIn()
+        && (isStudentIn(resource.data.classId)
+          || (resource.data.teacherId == request.auth.uid
+            && userData().role == 'teacher')
+          || isParentIn(resource.data.classId));
+
+      allow create: if signedIn()
+        && userData().role == 'teacher'
+        && request.resource.data.teacherId == request.auth.uid
+        && userData().role in ['teacher', 'curator']
+        && request.resource.data.classId is string
+        && isTeacherOf(request.resource.data.classId)
+        && request.resource.data.subjectId is string
+        && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.classId
+          == request.resource.data.classId
+        && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.teacherId
+          == request.auth.uid
+        && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.name
+          == request.resource.data.subjectName
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 10000
+        && request.resource.data.subjectName is string
+        && request.resource.data.attachments == []
+        && request.resource.data.dueDate is timestamp
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'classId', 'subjectId', 'subjectName', 'teacherId', 'title',
+          'description', 'attachments', 'dueDate', 'createdAt'
+        ]);
+
+      allow update: if signedIn()
+        && resource.data.teacherId == request.auth.uid
+        && isTeacherOf(resource.data.classId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['attachments'])
+        && request.resource.data.attachments is list
+        && request.resource.data.attachments.size() <= 10;
+
+      allow delete: if false;
+    }
+
+    match /submissions/{submissionId} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.studentId
+          || isParentOf(resource.data.studentId)
+          || (request.auth.uid == resource.data.teacherId
+            && userData().role == 'teacher'));
+
+      allow create: if signedIn()
+        && request.auth.uid == request.resource.data.studentId
+        && userData().role == 'student'
+        && request.resource.data.status == 'submitted'
+        && !request.resource.data.keys().hasAny(['grade', 'teacherComment'])
+        && submissionId
+          == request.resource.data.assignmentId + '_' + request.auth.uid
+        && request.resource.data.assignmentId is string
+        && exists(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId))
+        && get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data.classId
+          == userData().classId
+        && request.resource.data.classId == userData().classId
+        && request.resource.data.teacherId
+          == get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data.teacherId
+        && request.resource.data.subjectId
+          == get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data.subjectId
+        && request.resource.data.subjectName
+          == get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data.subjectName
+        && request.resource.data.assignmentTitle
+          == get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data.title
+        && request.resource.data.studentName == userData().fullName
+        && request.resource.data.answerText is string
+        && request.resource.data.answerText.size() <= 10000
+        && request.resource.data.answerFiles is list
+        && request.resource.data.answerFiles.size() <= 10
+        && request.resource.data.submittedAt is timestamp
+        && request.resource.data.keys().hasOnly([
+          'assignmentId', 'studentId', 'studentName', 'assignmentTitle',
+          'subjectId', 'subjectName', 'classId', 'teacherId', 'status', 'answerText',
+          'answerFiles', 'submittedAt'
+        ]);
+
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.studentId
+        && resource.data.status != 'graded'
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'answerText', 'answerFiles', 'submittedAt'])
+        && request.resource.data.answerText is string
+        && request.resource.data.answerText.size() <= 10000
+        && request.resource.data.answerFiles is list
+        && request.resource.data.answerFiles.size() <= 10
+        && request.resource.data.submittedAt is timestamp;
+
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.teacherId
+        && isTeacherOf(resource.data.classId)
+        && resource.data.status == 'submitted'
+        && request.resource.data.status == 'graded'
+        && request.resource.data.grade is number
+        && request.resource.data.grade >= 1
+        && request.resource.data.grade <= 100
+        && request.resource.data.teacherComment is string
+        && request.resource.data.teacherComment.size() <= 2000
+        && request.resource.data.gradedAt is timestamp
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['grade', 'teacherComment', 'status', 'gradedAt']);
+
+      allow delete: if false;
+    }
+
+    match /inviteCodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /inviteAttempts/{userId} {
+      allow read, write: if false;
+    }
+
+    match /gradeSummaries/{studentId}/subjects/{subjectId} {
+      allow read: if signedIn()
+        && (request.auth.uid == studentId || isParentOf(studentId));
+      allow write: if false;
+    }
+  }
+}
