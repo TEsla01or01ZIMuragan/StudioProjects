@@ -50,12 +50,22 @@ class SchoolRepository {
     return _firestore
         .collection('assignments')
         .where('teacherId', isEqualTo: teacherId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs.map(SchoolAssignment.fromSnapshot).toList(),
-        );
+        .map((snapshot) {
+          final documents = [...snapshot.docs];
+          documents.sort((first, second) {
+            final firstCreatedAt =
+                (first.data()['createdAt'] as Timestamp?)
+                    ?.millisecondsSinceEpoch ??
+                0;
+            final secondCreatedAt =
+                (second.data()['createdAt'] as Timestamp?)
+                    ?.millisecondsSinceEpoch ??
+                0;
+            return secondCreatedAt.compareTo(firstCreatedAt);
+          });
+          return documents.map(SchoolAssignment.fromSnapshot).toList();
+        });
   }
 
   Stream<List<StudentSubmission>> watchStudentSubmissions(String studentId) {

@@ -44,9 +44,11 @@ service cloud.firestore {
         && request.resource.data.fullName.size() > 0
         && request.resource.data.fullName.size() <= 160
         && request.resource.data.email is string
-        && request.resource.data.childrenIds == []
-        && request.resource.data.childClassIds == []
-        && request.resource.data.createdAt is timestamp
+        && request.resource.data.childrenIds is list
+        && request.resource.data.childrenIds.size() == 0
+        && request.resource.data.childClassIds is list
+        && request.resource.data.childClassIds.size() == 0
+        && request.resource.data.createdAt == request.time
         && request.resource.data.keys().hasOnly([
           'uid', 'role', 'fullName', 'email', 'childrenIds',
           'childClassIds', 'createdAt'

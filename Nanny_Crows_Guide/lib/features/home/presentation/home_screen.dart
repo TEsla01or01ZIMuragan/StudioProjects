@@ -24,6 +24,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
+  final Set<int> _visitedSections = {0};
   String? _tokenUserId;
   StreamSubscription<String>? _tokenRefreshSubscription;
 
@@ -74,13 +75,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           body: SafeArea(
             child: IndexedStack(
               index: index,
-              children: [for (final section in sections) section.$2(user, ref)],
+              children: [
+                for (
+                  var sectionIndex = 0;
+                  sectionIndex < sections.length;
+                  sectionIndex++
+                )
+                  if (_visitedSections.contains(sectionIndex))
+                    sections[sectionIndex].$2(user, ref)
+                  else
+                    const SizedBox.shrink(),
+              ],
             ),
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: index,
-            onDestinationSelected: (value) =>
-                setState(() => _selectedIndex = value),
+            onDestinationSelected: (value) => setState(() {
+              _selectedIndex = value;
+              _visitedSections.add(value);
+            }),
             destinations: [
               for (final section in sections)
                 NavigationDestination(
@@ -266,18 +279,26 @@ class _TeacherAssignments extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repository = ref.watch(schoolRepositoryProvider);
-    return Scaffold(
-      body: _StreamContent<List<SchoolAssignment>>(
-        stream: repository.watchTeacherAssignments(user.uid),
-        builder: (context, assignments) => assignments.isEmpty
-            ? const _EmptyView('Создайте первое задание для своего класса.')
-            : _AssignmentList(assignments: assignments),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateAssignment(context, repository, user),
-        icon: const Icon(Icons.add),
-        label: const Text('Новое задание'),
-      ),
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: _StreamContent<List<SchoolAssignment>>(
+            stream: repository.watchTeacherAssignments(user.uid),
+            builder: (context, assignments) => assignments.isEmpty
+                ? const _EmptyView('Создайте первое задание для своего класса.')
+                : _AssignmentList(assignments: assignments),
+          ),
+        ),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.extended(
+            onPressed: () => _showCreateAssignment(context, repository, user),
+            icon: const Icon(Icons.add),
+            label: const Text('Новое задание'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -816,9 +837,7 @@ class _StreamContent<T> extends StatelessWidget {
     stream: stream,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
-        return _ErrorView(
-          message: 'Не удалось загрузить данные: ${snapshot.error}',
-        );
+        return _ErrorView(message: _streamErrorMessage(snapshot.error!));
       }
       if (snapshot.connectionState == ConnectionState.waiting) {
         return const Center(child: CircularProgressIndicator());
@@ -827,6 +846,13 @@ class _StreamContent<T> extends StatelessWidget {
       return builder(context, snapshot.data as T);
     },
   );
+}
+
+String _streamErrorMessage(Object error) {
+  if (error is FirebaseException && error.code == 'failed-precondition') {
+    return 'Индекс Firestore ещё создаётся. Дождитесь статуса Enabled в Firebase Console.';
+  }
+  return 'Не удалось загрузить данные: $error';
 }
 
 class _EmptyView extends StatelessWidget {
@@ -900,135 +926,153 @@ Future<void> _showCreateAssignment(
   BuildContext context,
   SchoolRepository repository,
   UserProfile teacher,
-) async {
-  final classId = TextEditingController();
-  final subjectId = TextEditingController();
-  final subjectName = TextEditingController();
-  final title = TextEditingController();
-  final description = TextEditingController();
-  DateTime dueDate = DateTime.now().add(const Duration(days: 7));
-  var files = <({String name, Uint8List bytes})>[];
-  var loading = false;
-
-  await showDialog<void>(
+) {
+  return showDialog<void>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: const Text('Новое задание'),
-        content: SizedBox(
-          width: 440,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _DialogField(controller: classId, label: 'Код класса'),
-                _DialogField(controller: subjectId, label: 'Код предмета'),
-                _DialogField(
-                  controller: subjectName,
-                  label: 'Название предмета',
-                ),
-                _DialogField(controller: title, label: 'Заголовок'),
-                _DialogField(
-                  controller: description,
-                  label: 'Описание',
-                  maxLines: 3,
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('Срок: ${_formatDate(dueDate)}'),
-                  trailing: const Icon(Icons.calendar_month),
-                  onTap: () async {
-                    final date = await showDatePicker(
-                      context: context,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                      initialDate: dueDate,
-                    );
-                    if (date != null) setState(() => dueDate = date);
-                  },
-                ),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked = await _chooseFiles(context);
-                    if (!context.mounted) return;
-                    setState(() => files = picked);
-                  },
-                  icon: const Icon(Icons.attach_file),
-                  label: Text(
-                    files.isEmpty
-                        ? 'Прикрепить файлы'
-                        : 'Файлов: ${files.length}',
-                  ),
-                ),
-              ],
+    builder: (_) =>
+        _CreateAssignmentDialog(repository: repository, teacher: teacher),
+  );
+}
+
+class _CreateAssignmentDialog extends StatefulWidget {
+  const _CreateAssignmentDialog({
+    required this.repository,
+    required this.teacher,
+  });
+
+  final SchoolRepository repository;
+  final UserProfile teacher;
+
+  @override
+  State<_CreateAssignmentDialog> createState() =>
+      _CreateAssignmentDialogState();
+}
+
+class _CreateAssignmentDialogState extends State<_CreateAssignmentDialog> {
+  final _classId = TextEditingController();
+  final _subjectId = TextEditingController();
+  final _subjectName = TextEditingController();
+  final _title = TextEditingController();
+  final _description = TextEditingController();
+  DateTime _dueDate = DateTime.now().add(const Duration(days: 7));
+  List<({String name, Uint8List bytes})> _files = [];
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _classId.dispose();
+    _subjectId.dispose();
+    _subjectName.dispose();
+    _title.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectDueDate() async {
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: _dueDate,
+    );
+    if (date != null && mounted) setState(() => _dueDate = date);
+  }
+
+  Future<void> _selectFiles() async {
+    final files = await _chooseFiles(context);
+    if (mounted) setState(() => _files = files);
+  }
+
+  Future<void> _save() async {
+    if (_classId.text.trim().isEmpty ||
+        _subjectId.text.trim().isEmpty ||
+        _subjectName.text.trim().isEmpty ||
+        _title.text.trim().isEmpty) {
+      _showMessage(context, 'Заполните код класса, предмет и заголовок.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      await widget.repository.createAssignment(
+        teacher: widget.teacher,
+        classId: _classId.text,
+        subjectId: _subjectId.text,
+        subjectName: _subjectName.text,
+        title: _title.text,
+        description: _description.text,
+        dueDate: _dueDate,
+        files: _files,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      _showMessage(context, error.message ?? 'Не удалось создать задание.');
+      setState(() => _loading = false);
+    } on ArgumentError catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        context,
+        error.message?.toString() ?? 'Проверьте прикреплённые файлы.',
+      );
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Новое задание'),
+    content: SizedBox(
+      width: 440,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _DialogField(controller: _classId, label: 'Код класса'),
+            _DialogField(controller: _subjectId, label: 'Код предмета'),
+            _DialogField(controller: _subjectName, label: 'Название предмета'),
+            _DialogField(controller: _title, label: 'Заголовок'),
+            _DialogField(
+              controller: _description,
+              label: 'Описание',
+              maxLines: 3,
             ),
-          ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('Срок: ${_formatDate(_dueDate)}'),
+              trailing: const Icon(Icons.calendar_month),
+              onTap: _loading ? null : _selectDueDate,
+            ),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _selectFiles,
+              icon: const Icon(Icons.attach_file),
+              label: Text(
+                _files.isEmpty
+                    ? 'Прикрепить файлы'
+                    : 'Файлов: ${_files.length}',
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: loading ? null : () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: loading
-                ? null
-                : () async {
-                    if (classId.text.trim().isEmpty ||
-                        subjectId.text.trim().isEmpty ||
-                        subjectName.text.trim().isEmpty ||
-                        title.text.trim().isEmpty) {
-                      _showMessage(
-                        context,
-                        'Заполните код класса, предмет и заголовок.',
-                      );
-                      return;
-                    }
-                    setState(() => loading = true);
-                    try {
-                      await repository.createAssignment(
-                        teacher: teacher,
-                        classId: classId.text,
-                        subjectId: subjectId.text,
-                        subjectName: subjectName.text,
-                        title: title.text,
-                        description: description.text,
-                        dueDate: dueDate,
-                        files: files,
-                      );
-                      if (dialogContext.mounted) Navigator.pop(dialogContext);
-                    } on FirebaseException catch (error) {
-                      if (!context.mounted) return;
-                      _showMessage(
-                        context,
-                        error.message ?? 'Не удалось создать задание.',
-                      );
-                      setState(() => loading = false);
-                    } on ArgumentError catch (error) {
-                      if (!context.mounted) return;
-                      _showMessage(
-                        context,
-                        error.message?.toString() ?? 'Проверьте файлы.',
-                      );
-                      setState(() => loading = false);
-                    }
-                  },
-            child: loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Создать'),
-          ),
-        ],
       ),
     ),
+    actions: [
+      TextButton(
+        onPressed: _loading ? null : () => Navigator.of(context).pop(),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(
+        onPressed: _loading ? null : _save,
+        child: _loading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Создать'),
+      ),
+    ],
   );
-  classId.dispose();
-  subjectId.dispose();
-  subjectName.dispose();
-  title.dispose();
-  description.dispose();
 }
 
 Future<void> _showSubmissionDialog(

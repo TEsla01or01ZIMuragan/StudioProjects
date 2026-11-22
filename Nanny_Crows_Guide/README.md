@@ -66,6 +66,14 @@ Functions генерируют уникальный шестизначный к�
 
 Правила запрещают родителю изменять школьные данные, ученику — менять оценку, а учителю — оценивать работы вне своих классов. Коллекции `inviteCodes` и `inviteAttempts` доступны только Cloud Functions.
 
+После изменений в `firestore.rules` или `firestore.indexes.json` опубликуйте их в проекте Firebase. Из каталога проекта выполните:
+
+```sh
+firebase deploy --only firestore:rules,firestore:indexes --project nanny-crow-s-guide
+```
+
+Либо опубликуйте содержимое `firestore.rules` в Firebase Console → Firestore Database → Rules, а составные индексы из `firestore.indexes.json` создайте на вкладке **Indexes**. Пока правила не опубликованы, регистрация может завершаться сообщением `PERMISSION_DENIED`; после создания индексов дождитесь статуса **Enabled**.
+
 ## Проверки
 
 ```sh
