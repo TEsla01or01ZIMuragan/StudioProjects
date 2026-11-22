@@ -10,7 +10,10 @@ final authRepositoryProvider = Provider<AuthRepository>(
 );
 
 final schoolRepositoryProvider = Provider<SchoolRepository>(
-  (ref) => SchoolRepository(FirebaseFirestore.instance),
+  (ref) => SchoolRepository(
+    FirebaseFirestore.instance,
+    FirebaseAuth.instance,
+  ),
 );
 
 final currentUserProvider = StreamProvider<User?>(

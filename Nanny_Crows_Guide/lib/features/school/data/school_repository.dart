@@ -2,15 +2,17 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:nanny_crows_guide/features/auth/domain/user_profile.dart';
 import 'package:nanny_crows_guide/features/school/domain/school_models.dart';
 import 'package:uuid/uuid.dart';
 
 class SchoolRepository {
-  SchoolRepository(this._firestore);
+  SchoolRepository(this._firestore, this._auth);
 
   final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
   final FirebaseStorage _storage = FirebaseStorage.instance;
   static const _uuid = Uuid();
 
@@ -18,12 +20,20 @@ class SchoolRepository {
     return _firestore
         .collection('assignments')
         .where('classId', isEqualTo: classId)
-        .orderBy('dueDate')
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs.map(SchoolAssignment.fromSnapshot).toList(),
-        );
+        .map((snapshot) {
+          final assignments = snapshot.docs
+              .map(SchoolAssignment.fromSnapshot)
+              .toList();
+          assignments.sort((first, second) {
+            final firstDueDate = first.dueDate;
+            final secondDueDate = second.dueDate;
+            if (firstDueDate == null) return secondDueDate == null ? 0 : 1;
+            if (secondDueDate == null) return -1;
+            return firstDueDate.compareTo(secondDueDate);
+          });
+          return assignments;
+        });
   }
 
   Stream<List<SchoolAssignment>> watchAssignmentsForClasses(
@@ -147,8 +157,20 @@ class SchoolRepository {
     required DateTime dueDate,
     required List<({String name, Uint8List bytes})> files,
   }) async {
+    final currentUid = _auth.currentUser?.uid;
+    if (currentUid == null) {
+      throw StateError('Сеанс входа завершён. Войдите в аккаунт снова.');
+    }
+    if (currentUid != teacher.uid) {
+      throw StateError(
+        'Аккаунт не совпадает с профилем учителя. Выйдите и войдите снова.',
+      );
+    }
     _validateFiles(files);
+
+
     final reference = _firestore.collection('assignments').doc();
+
     await reference.set({
       'classId': classId.trim(),
       'subjectId': subjectId.trim(),

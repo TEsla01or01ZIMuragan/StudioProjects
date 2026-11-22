@@ -108,7 +108,8 @@ service cloud.firestore {
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 10000
         && request.resource.data.subjectName is string
-        && request.resource.data.attachments == []
+        && request.resource.data.attachments is list
+        && request.resource.data.attachments.size() == 0
         && request.resource.data.dueDate is timestamp
         && request.resource.data.createdAt == request.time
         && request.resource.data.keys().hasOnly([

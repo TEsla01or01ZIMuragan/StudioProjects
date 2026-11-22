@@ -1009,6 +1009,10 @@ class _CreateAssignmentDialogState extends State<_CreateAssignmentDialog> {
       if (!mounted) return;
       _showMessage(context, error.message ?? 'Не удалось создать задание.');
       setState(() => _loading = false);
+    } on StateError catch (error) {
+      if (!mounted) return;
+      _showMessage(context, error.message);
+      setState(() => _loading = false);
     } on ArgumentError catch (error) {
       if (!mounted) return;
       _showMessage(
